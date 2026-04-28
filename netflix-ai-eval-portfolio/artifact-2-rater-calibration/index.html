@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Netflix AI Evaluation — Rater Calibration Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #ffffff; --bg2: #f5f4f0; --bg3: #eeece7;
+    --text: #1a1a18; --text2: #5f5e5a; --text3: #9c9a92;
+    --border: rgba(0,0,0,0.12); --border2: rgba(0,0,0,0.22);
+    --blue: #378ADD; --blue-bg: #E6F1FB; --blue-text: #0C447C;
+    --green: #639922; --green-bg: #EAF3DE; --green-text: #27500A;
+    --amber: #EF9F27; --amber-bg: #FAEEDA; --amber-text: #633806;
+    --red: #E24B4A; --red-bg: #FCEBEB; --red-text: #A32D2D;
+    --radius: 10px; --radius-sm: 6px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a18; --bg2: #242422; --bg3: #2c2c2a;
+      --text: #e8e6de; --text2: #b4b2a9; --text3: #73726c;
+      --border: rgba(255,255,255,0.1); --border2: rgba(255,255,255,0.2);
+      --blue-bg: #042C53; --blue-text: #B5D4F4;
+      --green-bg: #173404; --green-text: #C0DD97;
+      --amber-bg: #412402; --amber-text: #FAC775;
+      --red-bg: #501313; --red-text: #F09595;
+    }
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg3); color: var(--text); min-height: 100vh; }
+  .page-header { background: var(--bg); border-bottom: 0.5px solid var(--border); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; }
+  .page-title { font-size: 15px; font-weight: 600; }
+  .page-subtitle { font-size: 13px; color: var(--text3); margin-top: 2px; }
+  .badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 3px 9px; border-radius: 20px; }
+  .b-green { background: var(--green-bg); color: var(--green-text); }
+  .b-amber { background: var(--amber-bg); color: var(--amber-text); }
+  .b-red { background: var(--red-bg); color: var(--red-text); }
+  .b-blue { background: var(--blue-bg); color: var(--blue-text); }
+  .container { max-width: 1200px; margin: 0 auto; padding: 28px 24px; }
+  .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+  @media (max-width: 768px) { .metrics-grid { grid-template-columns: repeat(2,1fr); } }
+  .metric { background: var(--bg2); border-radius: var(--radius-sm); padding: 14px 16px; }
+  .metric-val { font-size: 26px; font-weight: 700; color: var(--text); line-height: 1; }
+  .metric-val span { font-size: 14px; font-weight: 400; color: var(--text3); }
+  .metric-lbl { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); margin-top: 4px; }
+  .metric-delta { font-size: 12px; margin-top: 4px; }
+  .up { color: var(--green-text); } .dn { color: var(--red-text); } .nt { color: var(--text3); }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+  .tab { padding: 7px 16px; font-size: 13px; border-radius: 20px; cursor: pointer; color: var(--text2); border: 0.5px solid transparent; transition: all 0.12s; }
+  .tab.active { background: var(--bg); border-color: var(--border); color: var(--text); font-weight: 600; }
+  .card { background: var(--bg); border: 0.5px solid var(--border); border-radius: var(--radius); }
+  .card-inner { padding: 0 20px; }
+  .section-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); margin-bottom: 12px; padding: 0 2px; }
+  /* Rater table */
+  .rater-header, .rater-row { display: grid; grid-template-columns: 150px 64px 1fr 100px 90px; gap: 10px; align-items: center; padding: 10px 20px; border-bottom: 0.5px solid var(--border); }
+  .rater-header { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text3); padding-top: 12px; padding-bottom: 8px; }
+  .rater-row:last-child { border-bottom: none; }
+  .rater-row { font-size: 12px; color: var(--text2); }
+  .rater-name { font-weight: 600; color: var(--text); font-size: 13px; }
+  .mini-bar { height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; margin-top: 4px; }
+  .mini-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+  .trend-text { font-size: 10px; color: var(--text3); margin-top: 3px; }
+  .action-link { color: var(--text3); cursor: pointer; font-size: 11px; }
+  .action-link.warn { color: var(--amber-text); text-decoration: underline; }
+  .action-link.danger { color: var(--red-text); text-decoration: underline; }
+  /* Onboarding phases */
+  .phase { border: 0.5px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 10px; }
+  .phase-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .phase-num { width: 24px; height: 24px; border-radius: 50%; background: var(--blue-bg); color: var(--blue-text); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .phase-title { font-size: 14px; font-weight: 600; color: var(--text); }
+  .phase-body { font-size: 12px; color: var(--text2); line-height: 1.7; }
+  .phase-kpi { font-size: 11px; color: var(--text3); margin-top: 8px; padding: 6px 10px; background: var(--bg2); border-radius: var(--radius-sm); }
+  .phase-kpi strong { color: var(--text2); }
+  /* Chart */
+  .chart-wrap { position: relative; width: 100%; height: 260px; padding: 16px 16px 8px; }
+  .chart-note { font-size: 12px; color: var(--text2); line-height: 1.7; padding: 0 20px 16px; }
+  .chart-legend { display: flex; gap: 16px; font-size: 11px; color: var(--text3); padding: 0 20px 4px; }
+  .leg-dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 4px; vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <div class="page-title">Rater Calibration Dashboard</div>
+    <div class="page-subtitle">Netflix AI evaluation · Synopsis quality task · Cohort 4 (n=14)</div>
+  </div>
+  <div style="display:flex;gap:8px;">
+    <span class="badge b-green">Cohort κ 0.74</span>
+    <span class="badge b-blue">Active sprint</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="metrics-grid">
+    <div class="metric">
+      <div class="metric-val">6.2 <span>days</span></div>
+      <div class="metric-lbl">Median speed to IRR</div>
+      <div class="metric-delta up">↓ 2.1 days vs cohort 3</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">0.74</div>
+      <div class="metric-lbl">Cohort Cohen's κ</div>
+      <div class="metric-delta up">↑ 0.08 vs session 1</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">87 <span>%</span></div>
+      <div class="metric-lbl">Throughput rate</div>
+      <div class="metric-delta nt">— on target (≥85%)</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">3</div>
+      <div class="metric-lbl">Raters need attention</div>
+      <div class="metric-delta dn">1 drift · 1 below κ · 1 onboarding</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" id="tab-raters" onclick="switchTab('raters')">Rater health</div>
+    <div class="tab" id="tab-onboard" onclick="switchTab('onboard')">Onboarding protocol</div>
+    <div class="tab" id="tab-irr" onclick="switchTab('irr')">IRR trajectory</div>
+  </div>
+
+  <!-- RATER HEALTH TAB -->
+  <div id="view-raters">
+    <div class="section-label">Active rater cohort — 7 of 14 shown</div>
+    <div class="card">
+      <div class="rater-header">
+        <span>Rater</span><span>κ score</span><span>Trend (5 sessions)</span><span>Status</span><span>Action</span>
+      </div>
+      <div class="rater-row">
+        <div><div class="rater-name">R-004 · Priya S.</div></div>
+        <div style="font-weight:600;color:var(--green);">0.81</div>
+        <div>
+          <div class="mini-bar"><div class="mini-fill" style="width:81%;background:var(--green);"></div></div>
+          <div class="trend-text">0.61 → 0.69 → 0.74 → 0.78 → 0.81</div>
+        </div>
+        <div><span class="badge b-green">Calibrated</span></div>
+        <div class="action-link">Producing</div>
+      </div>
+      <div class="rater-row">
+        <div><div class="rater-name">R-007 · Marcus L.</div></div>
+        <div style="font-weight:600;color:var(--green);">0.77</div>
+        <div>
+          <div class="mini-bar"><div class="mini-fill" style="width:77%;background:var(--green);"></div></div>
+          <div class="trend-text">0.58 → 0.63 → 0.71 → 0.74 → 0.77</div>
+        </div>
+        <div><span class="badge b-green">Calibrated</span></div>
+        <div class="action-link">Producing</div>
+      </div>
+      <div class="rater-row">
+        <div><div class="rater-name">R-002 · Wei C.</div></div>
+        <div style="font-weight:600;color:var(--green);">0.79</div>
+        <div>
+          <div class="mini-bar"><div class="mini-fill" style="width:79%;background:var(--green);"></div></div>
+          <div class="trend-text">0.64 → 0.71 → 0.76 → 0.78 → 0.79</div>
+        </div>
+        <div><span class="badge b-green">Calibrated</span></div>
+        <div class="action-link">Producing</div>
+      </div>
+      <div class="rater-row">
+        <div><div class="rater-name">R-011 · Aiko T.</div></div>
+        <div style="font-weight:600;color:var(--green);">0.72</div>
+        <div>
+          <div class="mini-bar"><div class="mini-fill" style="width:72%;background:var(--green);"></div></div>
+          <div class="trend-text">0.55 → 0.62 → 0.67 → 0.70 → 0.72</div>
+        </div>
+        <div><span class="badge b-green">Calibrated</span></div>
+        <div class="action-link">Producing</div>
+      </div>
+      <div class="rater-row">
+        <div><div class="rater-name">R-003 · James M.</div></div>
+        <div style="font-weight:600;color:var(--amber);">0.68</div>
+        <div>
+          <div class="mini-bar"><div class="mini-fill" style="width:68%;background:var(--amber);"></div></div>
+          <div class="trend-text">0.71 → 0.75 → 0.72 → 0.70 → 0.68 ↓</div>
+        </div>
+        <div><span class="badge b-amber">Drift alert</span></div>
+        <div class="action-link warn" onclick="alert('Action: Schedule 30-min calibration debrief. Pull 10 recent tasks where R-003 disagreed with cohort. Focus on tone dimension leniency in comedy genre.')">Re-calibrate ↗</div>
+      </div>
+      <div class="rater-row">
+        <div><div class="rater-name">R-009 · Sofia R.</div></div>
+        <div style="font-weight:600;color:var(--red);">0.61</div>
+        <div>
+          <div class="mini-bar"><div class="mini-fill" style="width:61%;background:var(--red);"></div></div>
+          <div class="trend-text">0.54 → 0.58 → 0.60 → 0.59 → 0.61</div>
+        </div>
+        <div><span class="badge b-red">Below κ</span></div>
+        <div class="action-link danger" onclick="alert('Action: Pause production tasks. Assign targeted re-training set (15 items, tone dimension, comedy/drama). Do not return to production until κ ≥ 0.65 in blind session.')">Review ↗</div>
+      </div>
+      <div class="rater-row">
+        <div><div class="rater-name">R-013 · Dana K.</div></div>
+        <div style="color:var(--text3);">—</div>
+        <div>
+          <div class="mini-bar"><div class="mini-fill" style="width:35%;background:var(--blue);"></div></div>
+          <div class="trend-text">Day 3 of onboarding · Phase 2 in progress</div>
+        </div>
+        <div><span class="badge b-blue">Onboarding</span></div>
+        <div class="action-link">Pending calibration</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ONBOARDING TAB -->
+  <div id="view-onboard" style="display:none;">
+    <div class="section-label">5-phase onboarding protocol — target: κ ≥ 0.70 in ≤7 days</div>
+    <div class="phase">
+      <div class="phase-header">
+        <div class="phase-num">1</div>
+        <div class="phase-title">Orientation — Day 1 · ~2 hours</div>
+      </div>
+      <div class="phase-body">
+        Rater reads the full rubric documentation including all four dimension definitions and anchor examples. Watches two annotated training videos: one passing AI-generated synopsis (score 3.6) and one failing (score 1.8), with expert voiceover commentary explaining each dimension score and the rationale behind it. Videos are the single highest-leverage onboarding investment — they show what good and bad look like in context, which written anchors alone cannot fully convey.
+      </div>
+      <div class="phase-kpi"><strong>Exit gate:</strong> 10-item comprehension quiz, score ≥ 80% required to advance. Topics: dimension definitions, score interpretation, edge case recognition, safety policy basics.</div>
+    </div>
+    <div class="phase">
+      <div class="phase-header">
+        <div class="phase-num">2</div>
+        <div class="phase-title">Anchored practice — Days 1–2 · 20 tasks</div>
+      </div>
+      <div class="phase-body">
+        Rater scores 20 gold-standard items with known correct scores. Immediate feedback after each item: rater sees the correct score and the expert rationale at each dimension. Items are stratified across all four scoring dimensions and deliberately include edge cases — an accurate but tonally flat synopsis, an engaging synopsis with a subtle factual error, a safety-adjacent item that is technically compliant but requires careful reading. The immediate feedback loop is what makes this phase different from just doing more tasks.
+      </div>
+      <div class="phase-kpi"><strong>Exit gate:</strong> Exact agreement ≥ 60% on gold set. Adjacent agreement (±1 point) ≥ 85%. If not met after 20 items, rater completes 10-item remediation set before advancing.</div>
+    </div>
+    <div class="phase">
+      <div class="phase-header">
+        <div class="phase-num">3</div>
+        <div class="phase-title">Blind calibration — Days 2–3 · 30 tasks</div>
+      </div>
+      <div class="phase-body">
+        Rater scores 30 items alongside a calibrated senior rater, with no feedback during the session. After completion, rater receives a written debrief report showing: dimension-by-dimension agreement breakdown, all disagreements of 2+ points with the expert score, and systematic pattern identification (e.g., "You scored leniently on tone in 8 of 9 comedy items"). The written debrief gives raters a concrete, personalized account of where their calibration needs work — far more actionable than a single aggregate κ.
+      </div>
+      <div class="phase-kpi"><strong>Exit gate:</strong> Cohen's κ ≥ 0.65 vs. senior rater. If not met, rater receives targeted remediation based on debrief findings and repeats Phase 3 with a new item set.</div>
+    </div>
+    <div class="phase">
+      <div class="phase-header">
+        <div class="phase-num">4</div>
+        <div class="phase-title">Monitored production — Days 3–7 · first 50 tasks</div>
+      </div>
+      <div class="phase-body">
+        Rater enters the production queue with 15% sentinel items embedded (higher than steady-state because early production is the highest-variance period). Cohen's κ computed per 10-task rolling window. If κ drops below 0.65 in any window, rater is paused and receives a targeted re-calibration set before continuing. All disagreements in this phase are logged for cohort-level pattern analysis.
+      </div>
+      <div class="phase-kpi"><strong>Graduation gate:</strong> κ ≥ 0.70 sustained over a 50-item window. Rater is then considered fully calibrated and sentinel rate drops to steady-state 10%.</div>
+    </div>
+    <div class="phase">
+      <div class="phase-header">
+        <div class="phase-num">5</div>
+        <div class="phase-title">Ongoing health monitoring — continuous</div>
+      </div>
+      <div class="phase-body">
+        Steady-state sentinel rate: 10%. Monthly cohort recalibration session — group debrief on systematic drift patterns identified across the cohort over the prior month, with updated anchor examples for any edge cases that caused widespread disagreement. Individual drift alert triggers if rolling 20-item κ drops more than 0.05 below established baseline. Drift is addressed before it compounds.
+      </div>
+      <div class="phase-kpi"><strong>Drift threshold:</strong> &gt;0.05 drop over rolling 20-item window triggers immediate re-calibration session. Rater continues producing while session is scheduled (within 48 hours).</div>
+    </div>
+  </div>
+
+  <!-- IRR CHART TAB -->
+  <div id="view-irr" style="display:none;">
+    <div class="section-label">Cohort IRR trajectory — 8 calibration sessions</div>
+    <div class="card">
+      <div class="chart-legend">
+        <span><span class="leg-dot" style="background:#378ADD;"></span>Cohort κ</span>
+        <span><span class="leg-dot" style="background:#639922;border:1px dashed var(--green);"></span>Target κ = 0.70</span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="irrChart" role="img" aria-label="Line chart showing cohort IRR improving from 0.54 at session 1 to 0.74 at session 8, with a dip at session 7 due to new rater additions">Cohort κ improved from 0.54 at session 1 to 0.74 at session 8. The target κ = 0.70 was first achieved at session 5.</canvas>
+      </div>
+      <div class="chart-note">
+        <strong>Sessions 1–2:</strong> Rapid improvement as raters absorb anchor examples and anchored practice feedback.
+        <strong>Session 4 plateau:</strong> Corresponds to first cohort calibration debrief; corrections identified in debrief accelerated gains in sessions 5–6.
+        <strong>Session 7 dip:</strong> Three new raters added mid-cycle, pulling cohort κ down before their individual onboarding was complete. Corrected by session 8.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function switchTab(t) {
+  ['raters','onboard','irr'].forEach(v => {
+    document.getElementById('view-' + v).style.display = v === t ? '' : 'none';
+    document.getElementById('tab-' + v).classList.toggle('active', v === t);
+  });
+  if (t === 'irr') renderChart();
+}
+
+let chartRendered = false;
+function renderChart() {
+  if (chartRendered) return;
+  chartRendered = true;
+  const isDark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
+  const textColor = isDark ? '#73726c' : '#9c9a92';
+  new Chart(document.getElementById('irrChart'), {
+    type: 'line',
+    data: {
+      labels: ['Session 1','Session 2','Session 3','Session 4','Session 5','Session 6','Session 7','Session 8'],
+      datasets: [
+        {
+          label: 'Cohort κ',
+          data: [0.54, 0.62, 0.66, 0.68, 0.71, 0.73, 0.70, 0.74],
+          borderColor: '#378ADD', backgroundColor: 'rgba(55,138,221,0.08)',
+          pointBackgroundColor: '#378ADD', pointRadius: 5,
+          fill: true, tension: 0.35, borderWidth: 2
+        },
+        {
+          label: 'Target κ = 0.70',
+          data: [0.70,0.70,0.70,0.70,0.70,0.70,0.70,0.70],
+          borderColor: '#639922', borderWidth: 1.5, borderDash: [5,5],
+          pointRadius: 0, fill: false
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { min: 0.45, max: 0.85, ticks: { color: textColor, font: { size: 11 }, callback: v => v.toFixed(2) }, grid: { color: gridColor } },
+        x: { ticks: { color: textColor, font: { size: 11 }, maxRotation: 20 }, grid: { color: gridColor } }
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>
