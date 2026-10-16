@@ -1,4 +1,7 @@
-# Netflix AI Evaluation Portfolio
+# AI Evaluation Operations Portfolio
+
+> **Independent portfolio prototype, not a Netflix engagement.** This example uses a hypothetical streaming-media content evaluation setting. The dashboards display illustrative data, targets, and workflows, not Netflix operational results, production deployments, or empirically validated performance. Some of the methodology below describes intended design, rather than functionality proven by these standalone HTML artifacts. The company name is scenario context only and does not imply affiliation or endorsement.
+
 
 **Kraemer A. Lovelace** · Washington, DC · [klovelace@gmail.com](mailto:klovelace@gmail.com)
 
